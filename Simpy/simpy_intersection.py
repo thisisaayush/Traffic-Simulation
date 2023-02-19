@@ -16,7 +16,6 @@ def truck(env, name, direction, intersection):
 
 # create the simulation environment
 env = simpy.Environment()
-
 # create the intersection resource with a capacity of 1.
 intersection = simpy.Resource(env, capacity=1)
 
