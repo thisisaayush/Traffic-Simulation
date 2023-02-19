@@ -21,6 +21,14 @@ class Truck:
         entry_time = 4 + x # 4 time units is a time needed to enter a road/highway after queue time.
         print(f"{self.name} is entering a road/highway from {endpoint} at {entry_time} time units.\n")
 
+    def destination(self, route, speed):
+        for i in range(len(route)-1):
+            start = route[i]
+            end = route[i+1]
+            time_required = end[i] - start[i]
+            print(f"{self.name} is driving from {start} to {end}.")
+            yield self.env.timeout(time_required)
+
     def mileage_(self, miles):
         self.mileage += miles
         return self.mileage
