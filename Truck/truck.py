@@ -1,5 +1,6 @@
 import simpy
 import random
+import geopy.distance
 
 class Truck:
     def __init__(self,env, name, model, year, mileage, engine):
@@ -21,13 +22,36 @@ class Truck:
         entry_time = 4 + x # 4 time units is a time needed to enter a road/highway after queue time.
         print(f"{self.name} is entering a road/highway from {endpoint} at {entry_time} time units.\n")
 
-    def destination(self, route, speed):
-        for i in range(len(route)-1):
+    def drive(self, route, speed):  # route is a tuple that has longitude, latitude, and start and end location.
+        for i in range(len(route) - 1):
             start = route[i]
-            end = route[i+1]
-            time_required = end[i] - start[i]
-            print(f"{self.name} is driving from {start} to {end}.")
-            yield self.env.timeout(time_required)
+            end = route[i + 1]
+            distance = geopy.distance.geodesic(start[0], end[0]).km
+            time_required = distance / speed
+
+            if "intersection" in end:
+                signal = input("Enter the light: ")
+                if signal == "red":
+                    stop_time = 0.005
+                    time_required += stop_time
+                    yield self.env.timeout(stop_time)
+                    time_red = env.now
+                    print(f"{self.name} is waiting at intersection for green light at time {time_red} seconds.")
+
+                elif signal == "yellow":
+                    proceed_time = 0.0025
+                    time_required += proceed_time
+                    yield self.env.timeout(proceed_time)
+                    time_yellow = env.now
+                    print(
+                        f"{self.name} is proceeding cautiously at intersection for yellow light at time {time_yellow} seconds.")
+                    yield self.env.event()  # wait for green light
+
+                else:
+                    print(
+                        f"{self.name} has crossed intersection.")  # the road segment length implementation is still confusing. No, implementation of time calculation.
+
+            print(f"{self.name} has reached destination {end[1]} at time {time_required:.5f} seconds.")
 
     def mileage_(self, miles):
         self.mileage += miles
@@ -170,6 +194,12 @@ deck_truck3 = DeckTruck(env, "Deck Truck 3","MB-15",2016,50332,"325HP",9, "59000
 
 env.process(deck_truck2.queue_up(end_point[random.randint(0,len(end_point) - 1)]))
 env.process(deck_truck3.queue_up(end_point[random.randint(0,len(end_point) - 1)]))
+
+"""Intersection Simulation- From Point A to Point B"""
+route1 = [((52.22, 21.01), "Point A"), ((53.1, 16.9), "Point B", "intersection")]
+route2 = [((42.22, 24.01), "Point C"), ((43.1, 19.9), "Point D", "intersection")]
+env.process(semi_truck1.drive(route1, 50))
+env.process(box_truck2.drive(route2, 50))
 
 env.run(until=50)
 
