@@ -1,31 +1,26 @@
-import pygame
+import simpy
+import random
 
-# initialize pygame
-pygame.init()
+class Truck:
+    def __init__(self, name, env):
+        self.env = env
+        self.name = name
 
-# create size of a display window.
-screen = pygame.display.set_mode((900, 725))
+    def queue_up(self, endpoint):
+        x = random.randint(1, 10) # truck queuing at different time units.
+        yield self.env.timeout(x)
+        arrival_time = self.env.now
+        print(f"Truck {self.name} is queueing up at {endpoint} at {arrival_time} time units.")
 
-pygame.display.set_caption("Highway Image")
+        entry_time = 4 + x # 4 time units is a time needed to enter a road/highway after queue time.
+        print(f"Truck {self.name} is entering a road/highway from {endpoint} at {entry_time} time units.\n")
 
-# load the image
-map_image = pygame.image.load("highway_image.png")
 
-# run the game loop
-running = True
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+env = simpy.Environment()
 
-    # clear the screen
-    screen.fill((255, 255, 255))
+end_point = ["Point A", "Point B", "Point C", "Point D", "Point E"] # name of end points of a map.
+for i in range(1,6):
+    truck = Truck(f"{i}", env)
+    env.process(truck.queue_up(end_point[random.randint(0,len(end_point) - 1)]))
 
-    # render the map
-    screen.blit(map_image, (0, 0))
-
-    # update the display
-    pygame.display.update()
-
-# quit pygame
-pygame.quit()
+env.run(until=25)
