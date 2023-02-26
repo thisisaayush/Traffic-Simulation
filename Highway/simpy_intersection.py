@@ -1,6 +1,6 @@
 import simpy
 import random
-
+# 5 trucks simulation trying to pass through an intersection from 4 different directions.
 def truck(env, name, direction, intersection):
 
     arrival_time = env.now # monitors arrival time of a truck.

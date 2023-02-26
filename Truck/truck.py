@@ -3,90 +3,81 @@ import random
 import geopy.distance
 
 class Truck:
-    def __init__(self,env, name, model, year, mileage, engine):
+    def __init__(self, env, name, model, speed):
         self.env = env
         self.name = name
         self.model = model
-        self.year = year
-        self.mileage = mileage
-        self.engine = engine
-        self.gas_type = None
-        self.gas_range = None
+        self.speed = speed
+        self.current_position = None
 
-    def queue_up(self, endpoint): #
+    def vehicle_size(self, l,b,h):
+        return l * b * h
+
+    # calculate the total distance base on intersection.
+    def total_distance(self, road_segments): # road segments is a parameter that consists of list of tuples.
+        sum_distance = 0
+        start_position = 0
+        end_position = 0
+
+        for i, segment in enumerate(road_segments):
+            if i == 0:
+                start_position = segment[0]
+            else:
+                start_position = end_position
+
+            end_position = segment[1]
+            distance = geopy.distance.distance(start_position, end_position)
+            sum_distance += distance.km
+
+        return sum_distance
+    def truck_queue(self, endpoint, queue): # queues truck at the endpoints A, B, C, D, E.
         x = random.randint(1, 10) # truck queuing at different time units.
         yield self.env.timeout(x)
         arrival_time = self.env.now
         print(f"{self.name} is queueing up at {endpoint} at {arrival_time} time units.")
-
-        entry_time = 4 + x # 4 time units is a time needed to enter a road/highway after queue time.
+        queue.append(self)
+        entry_time = 4 + arrival_time # 4 time units is a time needed to enter a road/highway after queue time.
         print(f"{self.name} is entering a road/highway from {endpoint} at {entry_time} time units.\n")
+        queue.pop(0)
 
-    def drive(self, route, speed):  # route is a tuple that has longitude, latitude, and start and end location.
-        for i in range(len(route) - 1):
-            start = route[i]
-            end = route[i + 1]
-            distance = geopy.distance.geodesic(start[0], end[0]).km
-            time_required = distance / speed
+    # road_segments: has the co-ordinates of road segments in list-tuple format.
+    def move_truck(self, env, road_segments, intersections_point): #move along-ness from point 1 to point 2.
+        travel_time = 0
+        for segment in road_segments:
+            start_position = segment[0]
+            end_position = segment[1]
 
-            if "intersection" in end:
-                signal = input("Enter the light: ")
-                if signal == "red":
-                    stop_time = 0.005
-                    time_required += stop_time
-                    yield self.env.timeout(stop_time)
-                    time_red = env.now
-                    print(f"{self.name} is waiting at intersection for green light at time {time_red} seconds.")
+            distance = geopy.distance.distance(start_position, end_position).km
+            travel_time += distance / self.speed
 
-                elif signal == "yellow":
-                    proceed_time = 0.0025
-                    time_required += proceed_time
-                    yield self.env.timeout(proceed_time)
-                    time_yellow = env.now
-                    print(
-                        f"{self.name} is proceeding cautiously at intersection for yellow light at time {time_yellow} seconds.")
-                    yield self.env.event()  # wait for green light
+            yield env.timeout(travel_time)
 
-                else:
-                    print(
-                        f"{self.name} has crossed intersection.")  # the road segment length implementation is still confusing. No, implementation of time calculation.
+            if end_position in intersections_point: # traffic signal.
+                wait_time = 00.5 # constant wait time at intersection despite lights color.
+                travel_time += wait_time
+                yield env.timeout(wait_time)
 
-            print(f"{self.name} has reached destination {end[1]} at time {time_required:.5f} seconds.")
-
-    def mileage_(self, miles):
-        self.mileage += miles
-        return self.mileage
-
-    def size_dimension_(self, l, b, h):
-        self.size_dimension = l * b * h
-        return self.size_dimension
-
-    def gas_efficiency(self, mph, amount):
-        self.gas_range = mph * amount
-        return self.gas_range
-
-    def stop_truck(self):
-        return "Stop the truck."
-
-
+            if road_segments[-1] == (start_position,end_position):
+                return("Reached Destination. Time Required: {}.".format(travel_time))
 class SemiTruck(Truck):
-    def __init__(self, env, name, model, year, mileage, engine, weight, length, width, height,axles):
-        super().__init__(env, name, model, year, mileage, engine)
-        self.length = length
-        self.width = width
-        self.height = height
-        self.weight = weight  # total weight of a trailer
+    def __init__(self, env, name, model, speed, axles, num_dirvers, trailer_attached=False, trailer_detached = False):
+        super().__init__(env, name, model, speed)
         self.axles = axles
+        self.drivers = num_dirvers
+        self.trailer_attached = trailer_attached
+        self.trailer_detached = trailer_detached
 
-    def attach_trailer(self):
-        print(f"Attached trailer length is {self.length} m, width is {self.width} m, height is {self.height} m, and weight is {self.weight} lbs.")
+    def trailer_attached_(self):
+        if self.trailer_attached == True:
+            return "Trailer Attached."
 
-    def detach_trailer(self):
-        print(f"Trailer of weight {self.weight} is detached.")
+    def trailer_detached_(self):
+        if self.trailer_detached == True:
+            return "Trailer Detached."
 
-    def trailer_capacity(self,weight_capacity):
-        factor = 0
-        capacity = 0
+    def trailer_capacity(self,capacity):
+        factor = 0 # factor will allow to estimate the total weight a truck can carry.
+        weight_capacity = 0
         if self.axles == 2:
             factor = 2.5
         elif self.axles == 3:
@@ -96,110 +87,89 @@ class SemiTruck(Truck):
         else:
             factor = 4.0
 
-        capacity = weight_capacity * factor
-        return capacity
+        weight_capacity = capacity * factor
+        return weight_capacity
 
 class BoxTruck(Truck):
-    def __init__(self, env, name, model, year, mileage, engine, length, width, height,load_capacity):
-        super().__init__(env, name, model, year, mileage, engine)
-        self.length = length
-        self.width = width
-        self.height = height
-        self.truck_space = None
-        self.load_capacity = load_capacity # load capacity per volume: in ton.
+    def __init__(self, env, name, model, speed, load_per_volume):
+        super().__init__(env, name, model, speed)
+        self.load = load_per_volume
         self.cargo_list = []
-
-    def cargo_space(self):
-        self.truck_space = self.length * self.width * self.height
-        return self.truck_space
 
     # allows the labor to keep the track of the cargo inventory in the box truck.
     def add_list(self, item):
         self.cargo_list.append(item)
 
-    def box_capacity(self):
-        self.load_capacity = self.length * self.width * self.height * self.load_capacity
-        return self.load_capacity
-
+    def box_capacity(self, l, b, h):
+        return l * b * h * self.load
 
 class DeckTruck(Truck):
-    def __init__(self, env, name, model, year, mileage, engine, length,load_capacity):
-        super().__init__(env, name, model, year, mileage, engine)
-        self.length = length # length of a truck.
-        self.ramp_length = 0  # length of a ramp.
-        self.load_capacity = load_capacity
-
+    def __init__(self, env, name, model, speed, length, breadth, ramp_length):
+        super().__init__(env, name, model, speed)
+        self.deck_area = length * breadth
+        self.ramp_length = ramp_length
 
     def ramp_access(self,length):
-        if length < self.length:
+        if length <= self.ramp_length:
             self.ramp_length = length
-            return "Ramp Extended."
+            return " ramp is extendable."
         else:
-            return "Ramp is longer than the truck itself."
-
+            return " ramp is not extendable. Ramp length is longer than the deck it self.."
 
 # create the simulation environment
 env = simpy.Environment()
+"""                   Semi Truck                """
+semitruck1 = SemiTruck(env, "Semi Truck 1", "Semi Model 1", 55, 3, 2, True, False)
+print(semitruck1.vehicle_size(15,5,6))
+print(semitruck1.trailer_attached_())
 
-'''**************** Semi Truck Instantiation ************************'''
-semi_truck1 = SemiTruck(env,"Semi Truck 1", "Model 1", 2012,58000,"500hp", 5, 2.5, 2.3, 5000, 4)
-print(f"Name: {semi_truck1.name}, Model: {semi_truck1.model}")
-# Call the attach_trailer function on the SemiTruck instance.
-semi_truck1.attach_trailer()
-# call the size_dimension function of Truck class by SemiTruck subclass.
-l = semi_truck1.length
-b = semi_truck1.width
-h = semi_truck1.height
-print(f"Size of a Semi-Truck: {semi_truck1.size_dimension_(l,b,h):.2f}.")
-x = semi_truck1.trailer_capacity(25000)
-print(f"The capacity of a trailer: {x:.2f} lbs.\n")
+semitruck2 = SemiTruck(env, "Semi Truck 2", "Semi Model 2", 60, 4, 2, False, True)
+print(semitruck2.trailer_detached_())
+print(semitruck2.trailer_capacity(25000))
+print()
+"""                   Box Truck                 """
+boxtruck1 = BoxTruck(env, "Box Truck 1", " Box Model 1", 58, 200)
+print("Box Truck 1 load capacity: ", boxtruck1.load)
+print(f"{boxtruck1.name} model is  {boxtruck1.model}.")
 
-end_point = ["Point A", "Point B", "Point C", "Point D", "Point E"] # name of end points of a map.
-env.process(semi_truck1.queue_up(end_point[random.randint(0,len(end_point) - 1)]))
+boxtruck2 = BoxTruck(env, "Box Truck 2", " Box Model 2", 65, 175)
+print("Box Truck Size: ",boxtruck2.vehicle_size(7,3,2.4), "meter cube.")
 
+print()
+"""                   Deck Truck                """
+decktruck1 = DeckTruck(env, "Deck Truck 1", "Deck Model 1", 54, 5, 2.5, 1.25)
+print(f"{decktruck1.name} model is {decktruck1.model}.")
+decktruck2 = DeckTruck(env, "Deck Truck 2", "Deck Model 2", 50, 5.2, 2.2, 1.2)
+print(f"{decktruck2.name} {decktruck2.ramp_access(1.0)}")
 
-semi_truck2 = SemiTruck(env,"Semi Truck 2", "Model 2", 2015,40020,"475hp", 5, 2.5, 2.3, 8000, 4)
-print(f"Model: {semi_truck2.model}, Engine: {semi_truck2.engine}")
-env.process(semi_truck2.queue_up(end_point[random.randint(0,len(end_point) - 1)]))
+"""                    End Points               """
+endpoints = {"Point A" : [], "Point B":[], "Point C":[], "Point D":[], "Point E":[]} #the endpoint will queue list of truck at the endpoint declared in there.
 
-semi_truck3 = SemiTruck(env,"Semi Truck 3", "Model 3", 2018,35180,"550hp", 5, 2.5, 2.3, 8000, 5)
-print(f"Year: {semi_truck3.year}, Axles: {semi_truck3.axles}\n")
-env.process(semi_truck3.queue_up(end_point[random.randint(0,len(end_point) - 1)]))
+print("\nThe Simulation of Endpoint Truck Queuing.\n")
+def generate_truck(env, endpoint, queue):
+    while True:
+        yield env.timeout(10)
+        truck = Truck(env, "Truck", "Model", 60)
+        env.process(truck.truck_queue(endpoint, queue))
 
+for endpoint in ["Point A", "Point B", "Point C", "Point D", "Point E"]:
+    env.process(generate_truck(env, endpoint, endpoints[endpoint]))
 
-'''**************** Box Truck Instantiation ************************'''
-box_truck1 = BoxTruck(env, "Ford", "FX-350",2018,48876,"375HP",5.5,2.5,2.2,6.6)
-print(box_truck1.name)
-item1 = box_truck1.add_list("box1")
-item2 = box_truck1.add_list("box2")
-item3 = box_truck1.add_list("box3")
-item4 = box_truck1.add_list("box4")
-item5 = box_truck1.add_list("box5")
-print(box_truck1.cargo_list)
+env.run(until=25)
 
-box_truck2 = BoxTruck(env, "Volks", "VS-310",2015,40976,"425HP",5.2,2.9,2.4,6.6)
-print(box_truck2.box_capacity())
-env.process(box_truck1.queue_up(end_point[random.randint(0,len(end_point) - 1)]))
-env.process(box_truck2.queue_up(end_point[random.randint(0,len(end_point) - 1)]))
+print()
 
-'''**************** Deck Truck Instantiation ************************'''
-deck_truck1 = DeckTruck(env, "Xplore","Mx-13",2010,55892,"325HP",8, "55000lbs")
-x = deck_truck1.stop_truck()
+road_segments = [ ((50.12,62.02),(50.15,62.04)),
+                  ((50.15,62.04),(50.16,62.08)),
+                  ((50.16,62.08),(50.21,62.14)),
+                  ((50.21,62.14),(50.23,62.17)),
+                  ((50.23,62.17),(50.55,62.35))
+                  ]
+intersections_point = [
+                 ((50.15,62.04),(50.16,62.08)),
+                 ((50.23,62.17),(50.55,62.35))
+                ]
+
+print(f"Total Distance: {decktruck2.total_distance(road_segments):.2f} km")
+x = decktruck1.move_truck(env,road_segments,intersections_point)
 print(x)
-y = deck_truck1.ramp_access(6)
-print(y)
-
-deck_truck2 = DeckTruck(env, "Deck Truck 2","Mx-16",2012,50892,"375HP",7, "55000lbs")
-deck_truck3 = DeckTruck(env, "Deck Truck 3","MB-15",2016,50332,"325HP",9, "59000lbs")
-
-env.process(deck_truck2.queue_up(end_point[random.randint(0,len(end_point) - 1)]))
-env.process(deck_truck3.queue_up(end_point[random.randint(0,len(end_point) - 1)]))
-
-"""Intersection Simulation- From Point A to Point B"""
-route1 = [((52.22, 21.01), "Point A"), ((53.1, 16.9), "Point B", "intersection")]
-route2 = [((42.22, 24.01), "Point C"), ((43.1, 19.9), "Point D", "intersection")]
-env.process(semi_truck1.drive(route1, 50))
-env.process(box_truck2.drive(route2, 50))
-
-env.run(until=50)
-
